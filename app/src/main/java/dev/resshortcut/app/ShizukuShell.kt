@@ -25,6 +25,16 @@ object ShizukuShell {
         throw (e.targetException ?: e)
     }
 
+    /** Executa um comando via Shizuku e devolve a saída binária (usado para captura PNG). */
+    fun execBytes(command: String): ByteArray {
+        val process = start(command)
+        val out = process.inputStream.readBytes()
+        // Consumir stderr evita deixar o processo bloqueado se houver saída de erro.
+        process.errorStream.use { it.readBytes() }
+        process.waitFor()
+        return out
+    }
+
     /** Executa um comando via Shizuku e devolve código, saída e erro (não lança por código != 0). */
     fun exec(command: String): Result {
         val process = start(command)
