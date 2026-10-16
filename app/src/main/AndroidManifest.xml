@@ -50,6 +50,7 @@
         </activity>
         <activity android:name=".ProfileActivity" android:exported="false" />
         <activity android:name=".TranslateSettingsActivity" android:exported="false" />
+        <activity android:name=".PerformanceActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true" />
     </application>
 </manifest>

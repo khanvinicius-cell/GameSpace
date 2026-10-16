@@ -57,7 +57,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-/** Bolha flutuante: toque = traduzir a tela; toque no resultado = fechar; segurar = abrir o app. */
+/** Botão flutuante: toque abre tradução/menu; deslizes acionam modos; toque longo alterna reposicionamento. */
 class TranslateOverlayService : Service() {
 
     data class Block(val text: String, val rect: Rect)
@@ -197,22 +197,35 @@ class TranslateOverlayService : Service() {
         var startY = 0
         var downTime = 0L
         var moved = false
+        var repositionMode = false
+        var longPressArmed = false
+        var longPressTriggered = false
+        var longPressRunnable: Runnable? = null
         tv.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX
-                    downY = e.rawY
-                    startX = bubbleParams.x
-                    startY = bubbleParams.y
-                    downTime = e.eventTime
-                    moved = false
+                    downX = e.rawX; downY = e.rawY
+                    startX = bubbleParams.x; startY = bubbleParams.y
+                    downTime = e.eventTime; moved = false; longPressTriggered = false
+                    longPressArmed = true
+                    longPressRunnable = Runnable {
+                        if (longPressArmed && !moved) {
+                            longPressTriggered = true
+                            repositionMode = !repositionMode
+                            setBubbleText(if (repositionMode) "↔" else if (Prefs.mode(this) >= 2) "AUTO" else "文A")
+                            toast(if (repositionMode) "Reposicionamento ativado: arraste o botão e solte." else "Botão fixado nesta posição.")
+                        }
+                    }.also { main.postDelayed(it, 650L) }
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = e.rawX - downX
-                    val dy = e.rawY - downY
-                    if (!moved && (abs(dx) > dp(6) || abs(dy) > dp(6))) moved = true
-                    if (moved) {
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (abs(dx) > dp(10) || abs(dy) > dp(10)) {
+                        moved = true
+                        longPressArmed = false
+                        longPressRunnable?.let { main.removeCallbacks(it) }
+                    }
+                    if (repositionMode && moved) {
                         bubbleParams.x = startX + dx.toInt()
                         bubbleParams.y = startY + dy.toInt()
                         try { wm.updateViewLayout(v, bubbleParams) } catch (_: Exception) {}
@@ -220,15 +233,27 @@ class TranslateOverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (moved) {
+                    longPressArmed = false
+                    longPressRunnable?.let { main.removeCallbacks(it) }
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (repositionMode && moved) {
                         Prefs.setBubble(this, bubbleParams.x, bubbleParams.y)
-                    } else if (e.eventTime - downTime > 600) {
-                        openSettings()
-                    } else {
+                    } else if (!longPressTriggered && !moved && e.eventTime - downTime < 650L) {
                         handleBubbleTap()
+                    } else if (!longPressTriggered && moved) {
+                        if (abs(dx) >= dp(35) || abs(dy) >= dp(35)) {
+                            if (abs(dx) > abs(dy)) {
+                                if (dx < 0) { Prefs.setMode(this, 1); toast("Gesto: tradução de região") ; translateScreen() }
+                                else { Prefs.setMode(this, 0); toast("Gesto: tradução global"); translateScreen() }
+                            } else {
+                                if (dy < 0) { Prefs.setMode(this, 3); toast("Gesto: automática global"); startAutomaticMonitor() }
+                                else { Prefs.setMode(this, 2); toast("Gesto: automática de região"); if (selectedRegion == null) translateScreen() else startAutomaticMonitor() }
+                            }
+                        }
                     }
                     true
                 }
+                MotionEvent.ACTION_CANCEL -> { longPressArmed = false; longPressRunnable?.let { main.removeCallbacks(it) }; true }
                 else -> false
             }
         }
